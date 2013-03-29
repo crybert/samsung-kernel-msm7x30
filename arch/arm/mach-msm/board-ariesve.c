@@ -77,7 +77,9 @@
 #include <linux/platform_data/qcom_crypto_device.h>
 
 #include "devices.h"
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
 #include "devices-msm7x30.h"
+#endif
 #include "timer.h"
 #ifdef CONFIG_USB_G_ANDROID
 #include <linux/usb/android.h>
@@ -149,6 +151,13 @@ EXPORT_SYMBOL(switch_dev);
 #define MSM_FB_PRIM_BUF_SIZE	(800 * 480 * 4 * 3) /* 4bpp * 3 Pages */
 #else
 #define MSM_FB_PRIM_BUF_SIZE	(800 * 480 * 4 * 2) /* 4bpp * 2 Pages */
+#endif
+
+#ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
+/* width x height x 3 bpp x 2 frame buffer */
+#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((800 * 480 * 3 * 2), 4096)
+#else
+#define MSM_FB_OVERLAY0_WRITEBACK_SIZE	0
 #endif
 
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
@@ -5389,7 +5398,9 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_SAMSUNG_JACK
 	&sec_device_jack,
 #endif
-    &ram_console_device,
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
+	&ram_console_device,
+#endif
 };
 
 static struct msm_gpio msm_i2c_gpios_hw[] = {
@@ -7262,11 +7273,17 @@ static void __init reserve_pmem_memory(void)
 }
 
 
+static void __init reserve_mdp_memory(void)
+{
+	mdp_pdata.ov0_wb_size = MSM_FB_OVERLAY0_WRITEBACK_SIZE;
+	msm7x30_reserve_table[mdp_pdata.mem_hid].size += mdp_pdata.ov0_wb_size;
+}
 
 static void __init msm7x30_calculate_reserve_sizes(void)
 {
 	size_pmem_devices();
 	reserve_pmem_memory();
+	reserve_mdp_memory();
 }
 
 static int msm7x30_paddr_to_memtype(unsigned int paddr)
@@ -7302,15 +7319,17 @@ static void __init msm7x30_allocate_memory_regions(void)
 	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
 		size, addr, __pa(addr));
 
-    /* RAM Console can't use alloc_bootmem(), since that zeroes the
-     * region */
-    size = MSM_RAM_CONSOLE_SIZE;
-    ram_console_resources[0].start = msm_fb_resources[0].end+1;
-    ram_console_resources[0].end = ram_console_resources[0].start + size - 1;
-    pr_info("allocating %lu bytes at (%lx physical) for ram console\n",
-            size, (unsigned long)ram_console_resources[0].start);
-    /* We still have to reserve it, though */
-    reserve_bootmem(ram_console_resources[0].start,size,0);
+#ifdef CONFIG_ANDROID_RAM_CONSOLE
+	/* RAM Console can't use alloc_bootmem(), since that zeroes the
+	 * region */
+	size = MSM_RAM_CONSOLE_SIZE;
+	ram_console_resources[0].start = msm_fb_resources[0].end+1;
+	ram_console_resources[0].end = ram_console_resources[0].start + size - 1;
+	pr_info("allocating %lu bytes at (%lx physical) for ram console\n",
+		size, (unsigned long)ram_console_resources[0].start);
+	/* We still have to reserve it, though */
+	reserve_bootmem(ram_console_resources[0].start,size,0);
+#endif
 }
 
 static void __init msm7x30_map_io(void)
